@@ -1,0 +1,160 @@
+﻿<!DOCTYPE html>
+<html dir="ltr" lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <link rel="stylesheet" type="text/css" href="css/default.css" />
+    <script src="js/html5.js"></script>
+    <title>The Blockchain Billboard v0.08 (Grayscale)</title>
+	<script src="src/array.map.js" type="text/javascript"></script>
+	<script src="src/cryptojs.js" type="text/javascript"></script>
+	<script src="src/cryptojs.sha256.js" type="text/javascript"></script>
+	<script src="src/cryptojs.pbkdf2.js" type="text/javascript"></script>
+	<script src="src/cryptojs.hmac.js" type="text/javascript"></script>
+	<script src="src/cryptojs.aes.js" type="text/javascript"></script>
+	<script src="src/cryptojs.blockmodes.js" type="text/javascript"></script>
+	<script src="src/cryptojs.ripemd160.js" type="text/javascript"></script>
+	<script src="src/securerandom.js" type="text/javascript"></script>
+	<script src="src/ellipticcurve.js" type="text/javascript"></script>
+	<script src="src/secrets.js" type="text/javascript"></script>
+	<script src="src/biginteger.js" type="text/javascript"></script>
+	<script src="src/bitcoinjs-lib.js" type="text/javascript"></script>
+	<script src="src/bitcoinjs-lib.base58.js" type="text/javascript"></script>
+	<script src="src/bitcoinjs-lib.address.js" type="text/javascript"></script>
+	<script src="src/bitcoinjs-lib.ecdsa.js" type="text/javascript"></script>
+	<script src="src/bitcoinjs-lib.eckey.js" type="text/javascript"></script>
+	<script src="src/bitcoinjs-lib.util.js" type="text/javascript"></script>
+	<script src="src/crypto-scrypt.js" type="text/javascript"></script>
+    <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+    <script src='src/bitcoinjs-lib.min.js'></script>
+    <script>
+        var BOARD_WIDTH = 1250; // LAYOUT SIZE
+        var BOARD_HEIGHT = 800;
+        var GRID_SIZE = 1; // AIDING TO PLACE IMAGES WITH BETTER ALIGNMENT, THOUGH ISN'T NECESSARY AND CAN BE SET TO 1
+        var MOUSE_STALE_TIME = 400; // REQUEST URLS FROM SERVER ONLY IF MOUSE IS STALE FOR N MILLISECONDS
+        var SERVER_ROOT = "http://www.blockchainbillboard.com";
+        var SERVER_BOARDIMAGE_URL = "https://blockchainbillboard-contabo.s3.amazonaws.com/bcbb_image.png?v=" + Math.random();
+        var SERVER_GETPIXEL_URL = "getpixel.html"; // FOR DEMONSTRATION ONLY. REPLACE WITH A DYNAMIC HANDLER
+        var SERVER_GETPRICE_URL = SERVER_ROOT+"/api/pixels";
+
+        var REQUEST_TIMEOUT = 999999; // ms
+        var BALANCE_QUERY_INTERVAL = 5000; // ms
+        var UNCONFIRMED_QUERY_INTERVAL = 5000; // ms
+        var MIN_TX_FEE = 10000; // sat
+        var GEN_PIXEL_PRICE = 100000; // sat
+        var TRUN_MOD = 1000; // sat
+        var totalPixels;
+        var newPricePerPixel = 100000; // sat
+        var BTC_DISPLAY_UNIT = 100000; // mBTC
+        var staging_address;
+
+        // testnet
+        Bitcoin.Address.networkVersion = 0x6F;
+        Bitcoin.ECKey.privateKeyPrefix = 0xEF;
+    </script>
+</head>
+<body>
+    <div class="header">
+        <span class="logo">The Blockchain Billboard</span>
+        <ul>
+            <li><a href="#">About</a></li>
+            <li><a href="#">Blog</a></li>
+            <li><a href="#" class="buynow">Buy Now</a></li>
+        </ul>
+        <div class="cl"></div>
+    </div>
+    <div class="board">
+        <img id="cboard" src="" alt="" />
+        <img src="" id="myimage" alt="Double-click to set position" />
+    </div>
+    <div class="holder">
+        <img src="images/bb_holder.jpg" alt="" />
+        <input id="serverroot" value="" />
+    </div>
+
+    <div class="overlay">
+    </div>
+    <div class="dialog checkout">
+        <div class="title">
+            <span class="close">X</span>
+            <span class="back">Back</span>
+            Checkout
+        </div>
+        <div class="section">
+            <table>
+                <tr><td class="leftrow">Price:</td><td id="checkoutprice">0 mBTC</td></tr>
+                <tr>
+                    <td class="leftrow">Added Price:</td>
+                    <td class="bold">
+                        <input type="text" id="checkoutnewprice" value="0" /> mBTC
+                    </td>
+                </tr>
+            </table>
+            <span class="text">
+                The added price is stored per pixel in new addresses owned by you. You can always withdraw it, therefore setting lower prices.
+            </span>
+            <div class="priceline">
+                <span class="pricecaption">Total:</span>
+                <span class="totalprice">0 mBTC</span>
+                <div class="cl"></div>
+            </div>
+        </div>
+        <div class="section center">
+            <div class="text" id="log"></div>
+            <div id="payqr"></div>
+            <span class="text nomarg" id="payaddr"></span>
+        </div>
+        <div class="section prvkeys">
+            <a class="dlprvkeys">Download Private Keys</a>
+        </div>
+        <div class="section center">
+            <a class="text nodec" target="_blank" href="https://www.coinbase.com">Don't have any bitcoin?</a>
+        </div>
+    </div>
+    <div class="dialog customize">
+        <div class="title">
+            <span class="close">X</span>
+            Customize Your Ad
+        </div>
+        <div class="section">
+            <span class="caption">Link URL</span>
+            <span class="text">Your ad will link to this address</span>
+            <input type="text" value="http://www.blockchain-billboard.com" class="linkurl" />
+        </div>
+        <div class="section">
+            <button class="upload ready">+ Upload Image</button>
+            <button class="upload completed">x&nbsp;&nbsp;some-file.png</button>
+            <div class="favicon">
+                <input type="checkbox" class="usefavicon" />
+                <span class="text usefavicon">Use website icon from link (favicon)</span>
+            </div>
+            <input type="file" id="uploadimage" />
+            <div class="preview">
+                <span>Preview:</span>
+                <img src="" title="" />
+            </div>
+        </div>
+        <div class="section">
+            <span class="caption">Position and Size</span>
+            <span class="text nomarg">When you're ready, click "Select Position". This dialog will close and re-appear after double-clicking the image on the blockchain billboard.</span>
+            <span class="text sizestatus margtop">No image selected.</span>
+            <div class="text positionstatus margtop"><span class="cpos">No position selected.</span> <a href="#" class="selectposition">Select Position</a></div>
+        </div>
+        <div class="section">
+            <div class="priceline">
+                <span class="pricecaption">Price:</span>
+                <span class="totalprice">100 mBTC</span>
+                <div class="cl"></div>
+            </div>
+            <button class="checkout">Checkout</button>
+        </div>
+    </div>
+
+    <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+    <script src="js/respond.min.js"></script>
+    <script src="js/hammer.js"></script>
+    <script src="js/app2.js"></script>
+
+</body>
+</html>
