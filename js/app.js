@@ -15,11 +15,6 @@ var new_addresses;
 var fees;
 var rawTxHex, rawTxHex2;
 var totalGenerated;
-var staging_address;
-var substaging_addresses;
-var substageCount;
-var subTxHex, subTxHash;
-var cSubstage = 0;
 
 function getPixelUrl(x, y) {
     if (x == lrX && y == lrY) {
@@ -94,7 +89,7 @@ function setCustomizeDialog() {
         $(".prvkeys").hide();
 
         appendLog("Fetching current pixel data from server...");
-        fees = calculate_tx_fees(fileWidth * fileHeight);
+        fees = calculate_tx_fees(totalPixels);
 
         var req = $.ajax({
             type: "GET", url: SERVER_GETPRICE_URL + "/?tlx=" + posX + "&tly=" + posY + "&brx=" + (posX + fileWidth - 1) + "&bry=" + (posY + fileHeight - 1),
@@ -106,7 +101,7 @@ function setCustomizeDialog() {
             success: function (response) {
                 old_addresses = response;
                 totalBuyPrice = 0;
-                for (var i = 0; i < fileWidth*fileHeight; i++) {
+                for (var i = 0; i < totalPixels; i++) {
                     var buyPrice = parseFloat(old_addresses["data"][i]["b"]);
                     if (buyPrice == 0 || old_addresses["data"][i]["g"] == true) buyPrice = GEN_PIXEL_PRICE;
                     buyPrice = buyPrice - (buyPrice % TRUN_MOD);
@@ -125,16 +120,15 @@ function setCustomizeDialog() {
 }
 
 function calculateTotalPrice() {
-    var res = WAIT_FOR_PRICE / BTC_DISPLAY_UNIT;
-    $(".dialog.checkout .totalprice").html(isNaN(res) ? "(Calculating...)" : res + " mBTC");
+    $(".dialog.checkout .totalprice").html(WAIT_FOR_PRICE / BTC_DISPLAY_UNIT + " mBTC");
 }
 
 function updateFileDetails() { // UPDATE DIALOG WITH PREVIEW, DIMENSIONS & POSITION
     if (useFavIcon || fileUploaded) {
         fileWidth = $("#myimage").width();
         fileHeight = $("#myimage").height();
-        substageCount = Math.ceil(fileWidth * fileHeight / MAX_PIXELS_PER_TRAN);
-        new_addresses = new Array(fileWidth*fileHeight);
+        totalPixels = fileWidth * fileHeight;
+        new_addresses = new Array(totalPixels);
         totalGenerated = 0;
         $(".dialog.customize .sizestatus").html("Width: " + fileWidth + "px Height: " + fileHeight + "px");
         $(".dialog.customize .preview").show();
@@ -172,7 +166,6 @@ $(document).ready(function () {
     $("#serverroot").val(SERVER_ROOT);
     $("#serverroot").change(function () {
         SERVER_ROOT = $(this).val();
-        SERVER_GETPRICE_URL = SERVER_ROOT + "/api/pixels";
     });
 });
 
@@ -197,7 +190,7 @@ function initBoard() {
 function initBoardUsability() {
     $("#cboard, #myimage").on("dblclick", function (e) {
         if (CMODE == "buy") {
-            posX = lrX + 1; posY = lrY + 1;
+            posX = lrX+1; posY = lrY+1;
             positionSelected();
         }
     });
@@ -210,7 +203,7 @@ function initBoardUsability() {
             case "view":
                 resetCursor();
                 lrX = relX; lrY = relY;
-                setTimeout("getPixelUrl(" + lrX + "," + lrY + ");", MOUSE_STALE_TIME);
+                setTimeout("getPixelUrl("+lrX+","+lrY+");", MOUSE_STALE_TIME);
                 break;
             case "buy":
                 resetCursor();
@@ -255,7 +248,7 @@ function handleSwipes(ev) {
         case 'swiperight': direction = "right"; break;
         case 'swipeup': direction = "up"; break;
         case 'swipedown': direction = "down"; break;
-        case 'release':
+        case 'release': 
             break;
     }
 
@@ -342,28 +335,10 @@ function selectPosition() {
     alert("Double-click to select position.");
 }
 
-function totalPixels(substage) {
-    var total = fileWidth * fileHeight;
-    if (substageCount == 1) return total;
-    if (substage == substageCount - 1) {
-        return total % MAX_PIXELS_PER_TRAN;
-    } else {
-        return MAX_PIXELS_PER_TRAN;
-    }
-}
-
 function gotServerData() {
-    //debugger;
-    appendLog("Generating new addresses (<span id='totalGenerated'>0</span>/" + (fileWidth*fileHeight) + ")...");
+    appendLog("Generating new addresses (<span id='totalGenerated'>0</span>/" + totalPixels + ")...");
 
-    if (!staging_address) {
-        staging_address = generateBitcoinAddress(true);
-        substaging_addresses = new Array(substageCount);
-        for (var s = 0; s < substageCount; s++) {
-            substaging_addresses[s] = generateBitcoinAddress(true);
-        }
-    }
-
+    if (!staging_address) staging_address = generateBitcoinAddress(true);
     $("#staging").html(JSON.stringify(staging_address));
 
     window.requestAnimationFrame(generateAddress);
@@ -373,7 +348,7 @@ function generateAddress() {
     new_addresses[totalGenerated] = generateBitcoinAddress(false);
     totalGenerated++; $("#totalGenerated").html(totalGenerated);
 
-    if (totalGenerated < fileWidth*fileHeight) {
+    if (totalGenerated < totalPixels) {
         window.requestAnimationFrame(generateAddress);
     } else {
         // finished
@@ -397,22 +372,28 @@ function generateAddresses_completed() {
 }
 
 function generateUnformattedTransactions() {
+    $(".dialog.checkout .back, .dialog.checkout .close").hide();
+
     var staging_to_new = "", new_to_old = "";
     totalPrice = 0;
-    fees = calculate_tx_fees(fileWidth*fileHeight);
+    fees = calculate_tx_fees(totalPixels);
+    staging_to_new += "FUNDING TX FEES: " + fees.funding + "<br/>";
+    new_to_old += "TRANSFER TX FEES: " + fees.transfer + "<br/>";
 
-    for (var i = 0; i < fileWidth*fileHeight ; i++) {
+    for (var i = 0; i < totalPixels; i++) {
         var buyPrice = parseFloat(old_addresses["data"][i]["b"]);
         if (buyPrice == 0 || old_addresses["data"][i]["g"] == true) buyPrice = GEN_PIXEL_PRICE;
         buyPrice = buyPrice - (buyPrice % TRUN_MOD);
         var colorData = parseFloat(new_addresses[i]["color"]);
         var pixelPrice = buyPrice + colorData;
 
+        staging_to_new += staging_address["address"] + " --> (" + pixelPrice + ") " + new_addresses[i]["address"] + "<br/>";
+        new_to_old += new_addresses[i]["address"] + " --> (" + buyPrice + ") " + old_addresses["data"][i]["a"] + "<br/>";
+
         totalPrice += pixelPrice;
     }
 
-    debugger;
-    totalPrice += fees.funding + fees.transfer + fees.prestage;
+    totalPrice += fees.funding + fees.transfer;
     updateWaitForPrice();
     calculateTotalPrice();
 
@@ -420,7 +401,7 @@ function generateUnformattedTransactions() {
 }
 
 function updateWaitForPrice() {
-    WAIT_FOR_PRICE = totalPrice + (newPricePerPixel * fileWidth*fileHeight);
+    WAIT_FOR_PRICE = totalPrice + (newPricePerPixel * totalPixels);
 
     var qrAmount = parseFloat(WAIT_FOR_PRICE / 100000000).toFixed(8);
     var qr = "<iframe src='https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl=bitcoin:" + staging_address.address + "?amount=" + qrAmount + "' style='width:150px;height:150px;border-style:none;' scrolling='no' />";
@@ -430,7 +411,6 @@ function updateWaitForPrice() {
 
 var totalStagingBalanceAttempts = 0;
 function waitForPrice() {
-    $(".dialog.checkout .back, .dialog.checkout .close").hide();
     $("#payqr, #payaddr").show();
     $("#checkoutnewprice").attr("disabled", "disabled");
 
@@ -444,7 +424,6 @@ function waitForPrice() {
         },
         timeout: REQUEST_TIMEOUT,
         success: function (response) {
-            //debugger;
             var rBalance = response.balance;
             var usingUnconfirmed = false;
 
@@ -483,17 +462,18 @@ function generateTransactions() {
         timeout: REQUEST_TIMEOUT,
         success: function (response) {
             // staging to new
-            prestageTx = new bitcoin.Transaction();
+            var tx = new bitcoin.Transaction();
 
             var totalUnspentsValue = 0;
             for (var idx = 0; idx < response.length; idx++) {
                 var unspent = response[idx];
                 if (unspent.addresses.length > 0 && !unspent.spent) {
-                    prestageTx.addInput(unspent.transaction_hash, unspent.output_index);
+                    tx.addInput(unspent.transaction_hash, unspent.output_index);
                     totalUnspentsValue += unspent.amount;
                 }
             }
-            completeTransactions(prestageTx, totalUnspentsValue);
+
+            completeTransactions(tx, totalUnspentsValue);
         },
         error: function (ajaxContext) {
             appendLog("Checking unconfirmed transactions...");
@@ -502,65 +482,27 @@ function generateTransactions() {
     });
 }
 
-var prestageTx;
 function completeTransactions(tx, totalUnspentsValue) {
-    appendLog("Generating transactions ("+(cSubstage+1)+"/"+substageCount+")...");
-
-    if (cSubstage == 0) {
-        for (s = 0; s < substageCount; s++) {
-            var totalSubstage = 0;
-            var offset = s * MAX_PIXELS_PER_TRAN;
-            for (var i = offset; i < offset + totalPixels(s) ; i++) {
-                var buyPrice = parseFloat(old_addresses["data"][i]["b"]);
-                if (buyPrice == 0 || old_addresses["data"][i]["g"] == true) buyPrice = GEN_PIXEL_PRICE;
-                buyPrice = buyPrice - (buyPrice % TRUN_MOD);
-                var colorData = parseFloat(new_addresses[i]["color"]);
-                var pixelPrice = buyPrice + colorData;
-
-                totalSubstage += pixelPrice;
-            }
-            debugger;
-            var fees = calculate_tx_fees(totalPixels(s));
-            totalSubstage += fees.funding + fees.transfer;
-            tx.addOutput(substaging_addresses[s]["address"], totalSubstage);
-            substaging_addresses[s]["total"] = totalSubstage;
-            totalUnspentsValue -= totalSubstage;
-        }
-        var ecKey = new bitcoin.ECKey(staging_address.privatekey);
-        for (var idx = 0; idx < tx.ins.length; idx++) tx.sign(idx, ecKey);
-
-        var subTx = tx.serialize();
-        subTxHex = tx.serializeHex();
-        var subHashBytes = Crypto.SHA256(Crypto.SHA256(subTxHex, { asBytes: true }), { asBytes: true });
-        subHash = bytesToHex(subHashBytes.reverse());
-    }
-    
-    var fees = calculate_tx_fees(totalPixels(cSubstage));
-    //new tx
-    var tx1 = new bitcoin.Transaction();
-    tx1.addInput(subHash, cSubstage);
-    var offset = cSubstage * MAX_PIXELS_PER_TRAN;
-
-    for (var i = offset; i < offset + totalPixels(cSubstage) ; i++) {
+    appendLog("Generating transactions...");
+    for (var i = 0; i < totalPixels; i++) {
         var buyPrice = parseFloat(old_addresses["data"][i]["b"]);
         if (buyPrice == 0 || old_addresses["data"][i]["g"] == true) buyPrice = GEN_PIXEL_PRICE;
         buyPrice = buyPrice - (buyPrice % TRUN_MOD);
         var colorData = parseFloat(new_addresses[i]["color"]);
         var pixelPrice = buyPrice + newPricePerPixel + colorData;
 
-        tx1.addOutput(new_addresses[i]["address"], pixelPrice);
-        substaging_addresses[cSubstage]["total"] -= pixelPrice;
+        tx.addOutput(new_addresses[i]["address"], pixelPrice);
+        totalUnspentsValue -= pixelPrice;
     }
 
-    debugger;
-    substaging_addresses[cSubstage]["total"] -= fees.funding;
-    tx1.addOutput(substaging_addresses[cSubstage]["address"], substaging_addresses[cSubstage]["total"]);
+    totalUnspentsValue -= fees.funding;
+    tx.addOutput(staging_address["address"], totalUnspentsValue);
 
-    var ecKey = new bitcoin.ECKey(substaging_addresses[cSubstage].privatekey);
-    for (var idx = 0; idx < tx1.ins.length; idx++) tx1.sign(idx, ecKey);
+    var ecKey = new bitcoin.ECKey(staging_address.privatekey);
+    for (var idx = 0; idx < tx.ins.length; idx++) tx.sign(idx, ecKey);
 
-    var rawTx = tx1.serialize();
-    substaging_addresses[cSubstage]["hex1"] = tx1.serializeHex();
+    var rawTx = tx.serialize();
+    rawTxHex = tx.serializeHex();
 
     var funHashBytes = Crypto.SHA256(Crypto.SHA256(rawTx, { asBytes: true }), { asBytes: true });
     var funHash = bytesToHex(funHashBytes.reverse());
@@ -568,37 +510,32 @@ function completeTransactions(tx, totalUnspentsValue) {
     // transfer!
     var tx2 = new bitcoin.Transaction();
 
-    var offset = cSubstage * MAX_PIXELS_PER_TRAN;
-    for (var idx = offset; idx < offset + totalPixels(cSubstage) ; idx++) {
+    for (var idx = 0; idx < totalPixels; idx++) {
         tx2.addInput(funHash, idx);
         var buyPrice = parseFloat(old_addresses["data"][idx]["b"]);
         if (buyPrice == 0 || old_addresses["data"][idx]["g"] == true) buyPrice = GEN_PIXEL_PRICE;
         buyPrice = buyPrice - (buyPrice % TRUN_MOD);
         tx2.addOutput(old_addresses["data"][idx]["a"], buyPrice);
-        var changeBack = tx2.outs[idx-offset].value - buyPrice;
+        var changeBack = tx.outs[idx].value - buyPrice;
         tx2.addOutput(new_addresses[idx]["address"], changeBack);
     }
-    tx2.addInput(funHash, totalPixels(cSubstage));
+    tx2.addInput(funHash, totalPixels);
     // rest of fees from staging address
     //tx2.addOutput(staging_address["address"], totalUnspentsValue - fees.transfer);
-    for (var idx = 0; idx < totalPixels(cSubstage) ; idx++) {
+    for (var idx = 0; idx < totalPixels; idx++) {
         var ecKey2 = new bitcoin.ECKey(new_addresses[idx]["privatekey"]);
         tx2.sign(idx, ecKey2);
     }
-    tx2.sign(totalPixels(cSubstage), ecKey);
+    tx2.sign(totalPixels, ecKey);
 
-    substaging_addresses[cSubstage]["hex2"] = tx2.serializeHex();
+    rawTxHex2 = tx2.serializeHex();
 
-    appendLog("Broadcasting transactions (" + (cSubstage + 1) + "/" + substageCount + ")...");
-    if (cSubstage == 0) {
-        window.requestAnimationFrame(function () { relaySUB(cSubstage); });
-    } else {
-        window.requestAnimationFrame(function () { relaySTN(cSubstage); });
-    }
+    appendLog("Broadcasting transactions...");
+    relaySTN();
 }
 
 function tryUnconfirmed() {
-    var unconfirmedUrl = "https://testnet3.toshi.io/api/v0/addresses/" + staging_address.address + "/transactions";
+    var unconfirmedUrl = "https://testnet3.toshi.io/api/v0/addresses/"+staging_address.address+"/transactions";
     var req = $.ajax({
         type: "GET", url: unconfirmedUrl,
         crossDomain: true,
@@ -608,7 +545,7 @@ function tryUnconfirmed() {
         timeout: REQUEST_TIMEOUT,
         success: function (response) {
             // staging to new
-            prestageTx = new bitcoin.Transaction();
+            var tx = new bitcoin.Transaction();
 
             var totalUnspentsValue = 0;
             for (var idx = 0; idx < response.unconfirmed_transactions.length; idx++) {
@@ -617,17 +554,17 @@ function tryUnconfirmed() {
                 for (var z = 0; z < unspent.outputs.length; z++) {
                     var output = unspent.outputs[z];
                     if (output.addresses.indexOf(staging_address.address) >= 0) {
-                        prestageTx.addInput(unspent.hash, z);
+                        tx.addInput(unspent.hash, z);
                         totalUnspentsValue += output.amount;
                     }
                 }
             }
 
             if (totalUnspentsValue >= WAIT_FOR_PRICE) {
-                completeTransactions(prestageTx, totalUnspentsValue);
+                completeTransactions(tx, totalUnspentsValue);
                 return;
             } else {
-                setTimeout("waitForPrice();", BALANCE_QUERY_INTERVAL);
+                setTimeout("waitForPrice();", BALANCE_QUERY_INTERVAL); 
             }
         },
         error: function (ajaxContext) {
@@ -636,55 +573,35 @@ function tryUnconfirmed() {
     });
 }
 
-function relaySUB(substage) {
-    //if (substage > 0) { relaySTN(substage); return; }
+function relaySTN() {
     var realyUrl = "https://testnet3.toshi.io/api/v0/transactions";
     var req = $.ajax({
         type: "POST", url: realyUrl,
         crossDomain: true,
-        data: '{"hex": "' + subTxHex + '"}',
+        data: '{"hex": "' + rawTxHex + '"}',
         xhrFields: {
             withCredentials: false
         },
         timeout: REQUEST_TIMEOUT,
         success: function (response) {
-            relaySTN(substage);
+            relayNTO();
         },
         error: function (ajaxContext) {
             alert(ajaxContext.statusText);
         }
     });
 }
-function relaySTN(substage) {
+function relayNTO() {
     var realyUrl = "https://testnet3.toshi.io/api/v0/transactions";
     var req = $.ajax({
         type: "POST", url: realyUrl,
         crossDomain: true,
-        data: '{"hex": "' + substaging_addresses[substage]["hex1"] + '"}',
+        data: '{"hex": "' + rawTxHex2 + '"}',
         xhrFields: {
             withCredentials: false
         },
         timeout: REQUEST_TIMEOUT,
         success: function (response) {
-            relayNTO(substage);
-        },
-        error: function (ajaxContext) {
-            alert(ajaxContext.statusText);
-        }
-    });
-}
-function relayNTO(substage) {
-    var realyUrl = "https://testnet3.toshi.io/api/v0/transactions";
-    var req = $.ajax({
-        type: "POST", url: realyUrl,
-        crossDomain: true,
-        data: '{"hex": "' + substaging_addresses[substage]["hex2"] + '"}',
-        xhrFields: {
-            withCredentials: false
-        },
-        timeout: REQUEST_TIMEOUT,
-        success: function (response) {
-            alert(JSON.stringify(response));
             var sw = $.ajax({
                 type: "GET", url: SERVER_ROOT + "/api/tx/?txid=" + JSON.parse(response).hash,
                 crossDomain: true,
@@ -693,44 +610,31 @@ function relayNTO(substage) {
                     withCredentials: false
                 },
                 timeout: REQUEST_TIMEOUT,
-                success: function (r) { },
-                error: function (ac) { }
+                success: function (r) {},
+                error: function (ac) {}
             });
 
-            //alert("Purchase successful. The billboard will be updated when the next block is mined. (TX: " + JSON.parse(response).hash + ")");
-            //
-
-            relayLog += "TX: " + JSON.parse(response).hash + "\n";
-            cSubstage++;
-            if (cSubstage == substageCount) {
-                alert(relayLog);
-                appendLog("Thank you!");
-            } else {
-                completeTransactions(prestageTx, substaging_addresses[cSubstage]["total"]);
-            }
+            alert("Purchase successful. The billboard will be updated when the next block is mined. (TX: " + JSON.parse(response).hash + ")");
+            appendLog("Thank you!");
         },
         error: function (ajaxContext) {
             alert(ajaxContext.statusText);
         }
     });
 }
-var relayLog = "Purchase successful!\n";
 
 function calculate_tx_fees(number_of_pixels) {
     var bytes_per_inputs = 148;
     var bytes_per_output = 34;
     var price_per_byte = 10;
-    var funding, transfer, prestage;
+    var funding, transfer;
 
     funding = (bytes_per_inputs + bytes_per_output * number_of_pixels + 10) * price_per_byte;
     if (funding < MIN_TX_FEE) funding = MIN_TX_FEE;
     transfer = (number_of_pixels * (bytes_per_inputs + 2 * bytes_per_output) + 10) * price_per_byte;
     if (transfer < MIN_TX_FEE) transfer = MIN_TX_FEE;
-    prestage = (substageCount * (bytes_per_inputs + 2 * bytes_per_output) + 10) * price_per_byte;
-    prestage += MIN_TX_FEE;
-    if (prestage < MIN_TX_FEE) prestage = MIN_TX_FEE;
 
-    return { "funding": funding, "transfer": transfer, "prestage": prestage };
+    return { "funding": funding, "transfer": transfer };
 }
 
 function readImagePixels() {
@@ -753,13 +657,12 @@ function readImagePixels() {
             var avg = (imgPixels.data[i] + imgPixels.data[i + 1] + imgPixels.data[i + 2]) / 3;
             new_addresses[cidx]["color"] = Math.round(avg);
             cidx++;
-            //if (avg > 255) { debugger; }
         }
     }
 }
 
 function showNewAddresses() {
-    for (var i = 0; i < totalPixels(cSubstage) ; i++) {
+    for (var i = 0; i < totalPixels; i++) {
         $("#addresses").html($("#addresses").html() + JSON.stringify(new_addresses[i]) + "<br/>");
     }
 }
@@ -769,7 +672,7 @@ function generateBitcoinAddress(staging) {
     var bitcoinAddress = key.getBitcoinAddress();
     var privateKeyWif = key.getBitcoinWalletImportFormat();
     if (staging) {
-        return { "address": bitcoinAddress, "privatekey": privateKeyWif, "total": null, "hex1": null, "hex2": null, "inputhash": null };
+        return { "address": bitcoinAddress, "privatekey": privateKeyWif };
     } else {
         return { "address": bitcoinAddress, "privatekey": privateKeyWif, "color": null };
     }
